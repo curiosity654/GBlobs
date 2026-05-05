@@ -7,6 +7,7 @@ import tqdm
 
 from pcdet.models import load_data_to_gpu
 from pcdet.utils import common_utils
+from pcdet.utils.unieval_export import export_kitti_prediction_package
 
 
 def statistics_info(cfg, ret_dict, metric, disp_dict):
@@ -142,6 +143,32 @@ def eval_one_epoch(cfg, args, model, dataloader, epoch_id, logger, dist_test=Fal
 
     with open(result_dir / 'result.pkl', 'wb') as f:
         pickle.dump(det_annos, f)
+
+    export_cfg = cfg.get('UNIEVAL_EXPORT', None)
+    if export_cfg is not None and export_cfg.get('ENABLED', False):
+        export_dir = export_cfg.get('EXPORT_DIR', None)
+        export_dir = result_dir / 'unieval' if export_dir in [None, 'None', 'null', ''] else export_dir
+        export_info = export_kitti_prediction_package(det_annos, export_cfg, export_dir)
+        logger.info('UniEval package exported to %s' % export_info['package_dir'])
+        logger.info(
+            'UniEval export stats: frames=%d, boxes=%d, skipped_boxes=%d, format_only=%s'
+            % (
+                export_info['num_frames'],
+                export_info['num_boxes'],
+                export_info['skipped_boxes'],
+                export_cfg.get('FORMAT_ONLY', False)
+            )
+        )
+        ret_dict.update({
+            'unieval/num_frames': export_info['num_frames'],
+            'unieval/num_boxes': export_info['num_boxes'],
+            'unieval/skipped_boxes': export_info['skipped_boxes'],
+        })
+        if export_cfg.get('FORMAT_ONLY', False):
+            logger.info('Skipping dataset evaluation because UNIEVAL_EXPORT.FORMAT_ONLY=True')
+            logger.info('Result is saved to %s' % result_dir)
+            logger.info('****************Evaluation done.*****************')
+            return ret_dict
 
     result_str, result_dict = dataset.evaluation(
         det_annos, class_names,
